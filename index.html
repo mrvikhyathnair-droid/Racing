@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Offline Retro Racer</title>
+    <style>
+        body {
+            background-color: #1a1a1a;
+            color: #ffffff;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+
+        h1 {
+            margin-bottom: 5px;
+            font-size: 2.5rem;
+            text-shadow: 0 0 10px #2196f3;
+        }
+
+        #score-board {
+            font-size: 1.3rem;
+            margin-bottom: 20px;
+            display: flex;
+            gap: 20px;
+        }
+
+        .score-box {
+            background: #2a2a2a;
+            padding: 5px 15px;
+            border-radius: 4px;
+            border: 1px solid #444;
+        }
+
+        #score {
+            color: #2196f3;
+            font-weight: bold;
+        }
+
+        #high-score {
+            color: #ffeb3b;
+            font-weight: bold;
+        }
+
+        canvas {
+            background-color: #333333;
+            border: 4px solid #2196f3;
+            box-shadow: 0 0 20px rgba(33, 150, 243, 0.5);
+        }
+
+        #game-over-text {
+            display: none;
+            position: absolute;
+            font-size: 2rem;
+            color: #ff5722;
+            text-shadow: 0 0 10px #ff5722;
+            background: rgba(0, 0, 0, 0.9);
+            padding: 20px;
+            border-radius: 8px;
+            border: 2px solid #ff5722;
+            text-align: center;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>RETRO RACER</h1>
+    <div id="score-board">
+        <div class="score-box">Score: <span id="score">0</span></div>
+        <div class="score-box">High Score: <span id="high-score">0</span></div>
+    </div>
+    
+    <div id="game-over-text">
+        CRASHED!<br>
+        <span id="new-high-score-msg" style="font-size: 1.2rem; color: #ffeb3b; display: none;">New High Score!🏆<br></span>
+        <span style="font-size: 1.2rem; color: #fff;">Press SPACE to Restart</span>
+    </div>
+
+    <canvas id="gameCanvas" width="400" height="500"></canvas>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+        const scoreElement = document.getElementById("score");
+        const highScoreElement = document.getElementById("high-score");
+        const gameOverText = document.getElementById("game-over-text");
+        const newHighScoreMsg = document.getElementById("new-high-score-msg");
+
+        // Game objects configuration
+        let player = { x: 180, y: 400, width: 40, height: 70, speed: 7 };
+        let obstacles = [];
+        let score = 0;
+        let highScore = localStorage.getItem("racerHighScore") || 0;
+        let isGameOver = false;
+        let spawnTimer = 0;
+        let roadOffset = 0;
+
+        // Track user keyboard presses
+        let keys = { ArrowLeft: false, ArrowRight: false, a: false, d: false };
+
+        highScoreElement.textContent = highScore;
+
+        // Set up input listeners
+        window.addEventListener("keydown", (e) => {
+            if (e.key in keys) keys[e.key] = true;
+            if (e.key === " " && isGameOver) resetGame();
+        });
+        
+        window.addEventListener("keyup", (e) => {
+            if (e.key in keys) keys[e.key] = false;
+        });
+
+        function resetGame() {
+            player.x = 180;
+            obstacles = [];
+            score = 0;
+            scoreElement.textContent = score;
+            isGameOver = false;
+            spawnTimer = 0;
+            gameOverText.style.display = "none";
+            newHighScoreMsg.style.display = "none";
+            requestAnimationFrame(gameLoop);
+        }
+
+        // The core game execution loop
+        function gameLoop() {
+            if (isGameOver) return;
+
+            updateLogic();
+            renderVisuals();
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        function updateLogic() {
+            // 1. Move Player
+            if (keys.ArrowLeft || keys.a) player.x -= player.speed;
+            if (keys.ArrowRight || keys.d) player.x += player.speed;
+
+            // Keep player inside road boundaries (leaving room for side rails)
+            if (player.x < 40) player.x = 40;
+            if (player.x > canvas.width - 40 - player.width) player.x = canvas.width - 40 - player.width;
+
+            // 2. Animate Road Lines
+            roadOffset += 5;
+            if (roadOffset >= 40) roadOffset = 0;
+
+            // 3. Spawn Enemy Cars
+            spawnTimer++;
+            if (spawnTimer > 60) { // Spawns roughly every 1 second
+                spawnTimer = 0;
+                let randomX = Math.floor(Math.random() * (canvas.width - 80 - player.width)) + 40;
+                obstacles.push({
+                    x: randomX,
+                    y: -70,
+                    width: 40,
+                    height: 70,
+                    speed: Math.floor(Math.random() * 3) + 4 // Random variations in incoming speed
+                });
+            }
+
+            // 4. Update Obstacles & Check Collisions
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                let obs = obstacles[i];
+                obs.y += obs.speed;
+
+                // Simple Box-to-Box Collision Rules
+                if (player.x < obs.x + obs.width &&
+                    player.x + player.width > obs.x &&
+                    player.y < obs.y + obs.height &&
+                    player.y + player.height > obs.y) {
+                    
+                    handleGameOver();
+                }
+
+                // Remove out-of-bounds vehicles and score points
+                if (obs.y > canvas.height) {
+                    obstacles.splice(i, 1);
+                    score++;
+                    scoreElement.textContent = score;
+
+                    if (score > highScore) {
+                        highScore = score;
+                        highScoreElement.textContent = highScore;
+                        localStorage.setItem("racerHighScore", highScore);
+                    }
+                }
+            }
+        }
+
+        function renderVisuals() {
+            // Draw Asphalt
+            ctx.fillStyle = "#333333";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw Shoulders / Grass Borders
+            ctx.fillStyle = "#2e7d32";
+            ctx.fillRect(0, 0, 40, canvas.height);
+            ctx.fillRect(canvas.width - 40, 0, 40, canvas.height);
+
+            // Draw Animated Road Dividers
+            ctx.fillStyle = "#ffffff";
+            for (let i = -40; i < canvas.height; i += 40) {
+                ctx.fillRect(canvas.width / 2 - 5, i + roadOffset, 10, 20);
+            }
+
+            // Draw Player Vehicle (Blue Sports Car Body + Tires)
+            drawCar(player.x, player.y, "#2196f3");
+
+            // Draw Opponents (Red Traffic Vehicles)
+            obstacles.forEach(obs => {
+                drawCar(obs.x, obs.y, "#ff5722");
+            });
+        }
+
+        function drawCar(x, y, color) {
+            // Tires
+            ctx.fillStyle = "#000000";
+            ctx.fillRect(x - 4, y + 10, 4, 15);
+            ctx.fillRect(x + 40, y + 10, 4, 15);
+            ctx.fillRect(x - 4, y + 45, 4, 15);
+            ctx.fillRect(x + 40, y + 45, 4, 15);
+
+            // Main Car Core
+            ctx.fillStyle = color;
+            ctx.fillRect(x, y, 40, 70);
+
+            // Windshield Window
+            ctx.fillStyle = "#e0e0e0";
+            ctx.fillRect(x + 5, y + 20, 30, 12);
+        }
+
+        function handleGameOver() {
+            isGameOver = true;
+            
+            const sessionBest = localStorage.getItem("racerHighScoreSession") || 0;
+            if (score > sessionBest && score > 0) {
+                newHighScoreMsg.style.display = "block";
+                localStorage.setItem("racerHighScoreSession", score);
+            }
+            
+            gameOverText.style.display = "block";
+        }
+
+        // Start running immediately on screen draw load
+        resetGame();
+    </script>
+</body>
+</html>
